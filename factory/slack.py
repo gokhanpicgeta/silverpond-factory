@@ -83,12 +83,9 @@ class SlackClient:
         """Return the channel ID, using cached_id if available to avoid expensive lookups."""
         if cached_id:
             return cached_id
-        result = self._call("conversations.create", {"name": "factory-runs", "is_private": False})
-        if result.get("ok"):
-            channel_id = result["channel"]["id"]
-            _cache_channel_id(channel_id)
-            return channel_id
-        raise RuntimeError(f"Could not create factory-runs channel: {result.get('error')}")
+        channel_id = self.create_channel(name)
+        _cache_channel_id(channel_id)
+        return channel_id
 
     def get_thread_replies(self, channel_id: str, thread_ts: str, oldest: str) -> list:
         """Fetch replies in a thread newer than oldest."""
