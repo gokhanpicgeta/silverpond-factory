@@ -293,9 +293,11 @@ def watch_task(
                 _print_eval_results(run_id, results)
 
                 if evaluator.eval_passed(results):
+                    repo_base_path = task.repo.path if task.repo else working_dir
+                    base_branch = _detect_base_branch(client, repo_base_path, fallback=task.repo.branch if task.repo else "master")
+
                     if task.untangle is not None and run.worktree_path:
                         _log(run_id, "  running untangle diff...")
-                        base_branch = task.repo.branch if task.repo else "master"
                         branch = f"factory/{task.id}-{run_id}"
                         untangle_feedback = _run_untangle(client, working_dir, base_branch, branch, task.untangle)
                         if untangle_feedback:
@@ -315,7 +317,6 @@ def watch_task(
                     if task.crucible is not None and run.worktree_path:
                         _log(run_id, "  running crucible review...")
                         _slack_post(slack_client, run, ":magnifying_glass_tilted_right: Running crucible review...")
-                        base_branch = task.repo.branch if task.repo else "master"
                         crucible_feedback = _run_crucible(client, working_dir, base_branch, task.crucible)
                         store.save_log(run_id, f"crucible_iter{iteration}.json", crucible_feedback or "")
                         if crucible_feedback:
@@ -344,7 +345,7 @@ def watch_task(
                             eval_results=results,
                             extra_criteria=task.evaluator.criteria or "",
                             timeout=task.evaluator.timeout,
-                            base_branch=task.repo.branch if task.repo else "main",
+                            base_branch=base_branch,
                             model=eval_model,
                             effort=eval_effort,
                         )
@@ -437,6 +438,16 @@ def run_task(task: TaskDefinition, workers_path: Path = Path("workers.yaml")) ->
 
 # ── Private helpers ───────────────────────────────────────────────────────────
 
+def _detect_base_branch(client: SSHClient, repo_path: str, fallback: str = "master") -> str:
+    """Return the remote default branch (e.g. main or master), falling back if undetectable."""
+    result = client.run(
+        f"git -C {repo_path} symbolic-ref refs/remotes/origin/HEAD 2>/dev/null"
+        f" | sed 's|refs/remotes/origin/||'",
+        timeout=10,
+    )
+    return result.stdout.strip() or fallback
+
+
 def _github_https_url(url: str) -> str:
     """Convert a GitHub SSH or HTTPS URL to plain HTTPS (no embedded token)."""
     import re as _re
@@ -464,10 +475,18 @@ def _create_run_worktree(client: SSHClient, task: TaskDefinition, run_id: str, w
             if not result.ok:
                 raise RuntimeError(f"git clone failed:\n{result.stderr}")
 
+    # Detect actual default branch from remote (handles main vs master vs custom)
+    detected = client.run(
+        f"git -C {base_path} symbolic-ref refs/remotes/origin/HEAD 2>/dev/null"
+        f" | sed 's|refs/remotes/origin/||'",
+        timeout=10,
+    ).stdout.strip()
+    base_branch = detected or task.repo.branch
+
     client.run(f"mkdir -p {worktree_base}")
-    _log(run_id, f"  branch={branch}")
+    _log(run_id, f"  branch={branch}  base={base_branch}")
     result = client.run(
-        f"git -C {base_path} worktree add {worktree_path} -b {branch} {task.repo.branch}",
+        f"git -C {base_path} worktree add {worktree_path} -b {branch} {base_branch}",
         timeout=30,
     )
     if not result.ok:

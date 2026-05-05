@@ -155,14 +155,33 @@ def start_session(client: SSHClient, session_name: str, working_dir: str) -> boo
             break
 
     if ready:
-        # Give Claude a moment to finish rendering before sending keys
+        # Give Claude a moment to finish rendering before sending
         time.sleep(3)
 
-    client.run(
-        f"tmux send-keys -t {session_name} -l {shlex.quote(instruction)}"
-    )
-    client.run(f"tmux send-keys -t {session_name} Enter")
+    # Write instruction to a temp file and paste via tmux buffer —
+    # more reliable than send-keys -l for long text (avoids dropped keystrokes on TUI redraws).
+    tmp = f"/tmp/factory-instr-{session_name}"
+    encoded = base64.b64encode(instruction.encode()).decode()
+    client.run(f"echo '{encoded}' | base64 -d > {tmp}", timeout=5)
 
+    for attempt in range(3):
+        if attempt > 0:
+            time.sleep(3)
+        client.run(f"tmux load-buffer {tmp} 2>/dev/null || true", timeout=5)
+        client.run(f"tmux paste-buffer -t {session_name} -p 2>/dev/null || true", timeout=5)
+        client.run(f"tmux send-keys -t {session_name} Enter", timeout=5)
+        time.sleep(3)
+
+        # Check if Claude received the instruction — welcome screen should be gone
+        pane = client.run(
+            f"tmux capture-pane -t {session_name} -p 2>/dev/null", timeout=5
+        ).stdout
+        clean = re.sub(r"\x1b(?:\[[0-9;?]*[A-Za-z]|\][^\x07]*\x07|[()][AB012])", "", pane)
+        still_idle = "Welcome back" in clean or "Recent activity" in clean
+        if not still_idle:
+            break
+
+    client.run(f"rm -f {tmp}", timeout=5)
     return True
 
 
