@@ -145,15 +145,11 @@ def _push_and_pr(
         typer.echo(f"WARNING: could not open PR: {exc}")
         return None
 
-    # Post a Gemini-generated change summary as a PR comment
-    try:
-        from factory.evaluator_agent import run_gemini_review
-        task_desc = task.coder.prompt if task.coder else task.name
-        review = run_gemini_review(client, worktree, task_desc, base_branch=base_branch)
-        if review:
-            gh.comment_on_pr(repo, pr["number"], f"## Changes\n\n{review}")
-    except Exception as exc:
-        typer.echo(f"WARNING: gemini review failed: {exc}")
+    if run.gemini_summary:
+        try:
+            gh.comment_on_pr(repo, pr["number"], f"## Changes\n\n{run.gemini_summary}")
+        except Exception as exc:
+            typer.echo(f"WARNING: could not post gemini summary to PR: {exc}")
 
     return pr["html_url"]
 

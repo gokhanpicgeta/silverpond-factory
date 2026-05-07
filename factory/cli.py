@@ -108,7 +108,7 @@ def _build_inline_task(
     eval_commands: List[str],
     workers_path: Path,
 ) -> "TaskDefinition":
-    from factory.models import CoderConfig, CrucibleConfig, EvalConfig, RepoConfig, SlackConfig, TaskDefinition
+    from factory.models import CoderConfig, CrucibleConfig, EvalConfig, GeminiReviewConfig, RepoConfig, SlackConfig, TaskDefinition
 
     config = load_workers(workers_path)
     worker_name = next(iter(config.workers))
@@ -132,6 +132,7 @@ def _build_inline_task(
         repo=RepoConfig(path=repo_path, branch="main", url=f"git@github.com:{gh_repo}.git"),
         coder=CoderConfig(prompt=prompt, max_iterations=3, session_timeout=600, agents=["claude"]),
         crucible=CrucibleConfig(block_on="Critical", timeout=300),
+        gemini_review=GeminiReviewConfig(),
         slack=SlackConfig(reviewers=[r for r in os.environ.get("SLACK_DEFAULT_REVIEWERS", "").split(",") if r.strip()]),
         eval=EvalConfig(commands=eval_commands, working_dir=repo_path, timeout=120),
     )

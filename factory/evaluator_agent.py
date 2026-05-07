@@ -103,49 +103,6 @@ def run_evaluator(
     return client.run(cmd, timeout=timeout)
 
 
-GEMINI_REVIEW_PROMPT = """\
-You are summarising a pull request created by an automated software factory.
-
-## Task
-{task_description}
-
-## Changes
-```
-{diff}
-```
-
-Write a concise PR comment (3-5 sentences) that:
-- Describes what was changed and why
-- Lists the key files modified
-- Notes any important implementation decisions
-
-Do not critique the code. Just describe what was done clearly.
-"""
-
-
-def run_gemini_review(
-    client: SSHClient,
-    worktree_path: str,
-    task_description: str,
-    base_branch: str = "main",
-    timeout: int = 120,
-) -> str:
-    """Run gemini -p to generate a PR change summary. Returns empty string on failure."""
-    diff = get_diff(client, worktree_path, base_branch)
-    prompt = GEMINI_REVIEW_PROMPT.format(
-        task_description=task_description,
-        diff=diff[:8000],
-    )
-    encoded = base64.b64encode(prompt.encode()).decode()
-    cmd = f"gemini -p \"$(echo '{encoded}' | base64 -d)\""
-    result = client.run(cmd, timeout=timeout)
-    if result.ok and result.stdout.strip():
-        return result.stdout.strip()
-    raise RuntimeError(
-        f"gemini exited {result.exit_code}\nstdout: {result.stdout[:500]}\nstderr: {result.stderr[:500]}"
-    )
-
-
 def parse_verdict(output: str) -> tuple[str, str]:
     """
     Parse the evaluator's response.
