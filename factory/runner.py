@@ -329,8 +329,10 @@ def watch_task(
                             label = f" (round {rnd}/{rounds})" if rounds > 1 else ""
                             _log(run_id, f"  running crucible review{label}...")
                             _slack_post(slack_client, run, f":magnifying_glass_tilted_right: Running crucible review{label}...")
-                            crucible_feedback = _run_crucible(client, working_dir, base_branch, task.crucible)
+                            crucible_feedback, crucible_verbose = _run_crucible(client, working_dir, base_branch, task.crucible)
                             store.save_log(run_id, f"crucible_iter{iteration}_rnd{rnd}.json", crucible_feedback or "")
+                            if crucible_verbose:
+                                store.save_log(run_id, f"crucible_iter{iteration}_rnd{rnd}.verbose.txt", crucible_verbose)
                             if crucible_feedback:
                                 _log(run_id, f"  crucible blocked{label}: {crucible_feedback[:120]}...")
                                 _slack_post(slack_client, run, f":x: Crucible found critical issues{label}:\n```{crucible_feedback[:1000]}```")
@@ -560,13 +562,16 @@ def _run_untangle(client: SSHClient, working_dir: str, base_branch: str, head_br
     return "" if result.exit_code == 0 else (result.stdout or result.stderr)
 
 
-def _run_crucible(client: SSHClient, working_dir: str, base_branch: str, config: "CrucibleConfig") -> str:
+def _run_crucible(client: SSHClient, working_dir: str, base_branch: str, config: "CrucibleConfig") -> tuple:
     import json as _json
     if config.model:
         import shlex as _shlex
         patch_script = (
-            "import re; "
             "c = open('.crucible.toml').read(); "
+            "c = c.replace("
+            "'agents = [\\n    \"claude-code\",\\n    \"codex\",\\n    \"gemini\",\\n    \"open-code\",\\n]', "
+            "'agents = [\"claude-code\"]'"
+            "); "
             "old = '    \"-p\",\\n    \"--output-format\",\\n    \"json\",\\n]\\npersona = \"Security Auditor\"'; "
             f"new = '    \"-p\",\\n    \"--output-format\",\\n    \"json\",\\n    \"--model\",\\n    \"{config.model}\",\\n]\\npersona = \"Security Auditor\"'; "
             "open('.crucible.toml', 'w').write(c.replace(old, new))"
@@ -576,22 +581,23 @@ def _run_crucible(client: SSHClient, working_dir: str, base_branch: str, config:
             f"python3 -c {_shlex.quote(patch_script)}",
             timeout=15,
         )
-    cmd = f"cd {working_dir} && crucible review --branch {base_branch} --json"
+    cmd = f"cd {working_dir} && crucible review --branch {base_branch} --json --verbose"
     result = client.run(cmd, timeout=config.timeout)
+    verbose = result.stderr or ""
     if not result.stdout.strip():
-        return ""
+        return "", verbose
     try:
         data = _json.loads(result.stdout)
     except Exception:
-        return ""
+        return "", verbose
     if data.get("verdict", "Pass") in ("Pass", "Warn"):
-        return ""
+        return "", verbose
     critical = [
         f"[{f['severity']}] {f['file']}:{f.get('line_start','')} {f['title']}: {f['description']}"
         for f in data.get("findings", [])
         if f.get("severity") == "Critical"
     ]
-    return "\n".join(critical) if critical else ""
+    return ("\n".join(critical) if critical else ""), verbose
 
 
 def _slack_post(slack_client, run: "Run", text: str) -> None:
