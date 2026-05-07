@@ -19,8 +19,9 @@ import yaml as _yaml
 from factory import evaluator, session as sess, store
 from factory.coder import build_feedback_prompt
 from factory.evaluator_agent import parse_verdict, run_evaluator
+from factory.gemini_review import run_gemini_review
 from factory.config import WorkerConfig, load_workers
-from factory.models import Run, RunState, TaskDefinition, UntangleConfig, CrucibleConfig
+from factory.models import Run, RunState, TaskDefinition, UntangleConfig, CrucibleConfig, GeminiReviewConfig
 from factory.slots import teardown_port
 from factory.slack import SlackClient, get_token as get_slack_token, get_cached_channel_id
 from factory.ssh import SSHClient
@@ -373,6 +374,30 @@ def watch_task(
                             _log(run_id, "  evaluator requested changes — sending feedback to coder")
                             store.save_run(run)
                             continue
+
+                    if task.gemini_review is not None and run.worktree_path:
+                        _log(run_id, "  running gemini PR summary...")
+                        _slack_post(slack_client, run, ":sparkles: Generating Gemini PR summary...")
+                        try:
+                            summary = run_gemini_review(
+                                client,
+                                worktree_path=working_dir,
+                                task_description=task.coder.prompt,
+                                timeout=task.gemini_review.timeout,
+                                base_branch=task.repo.branch if task.repo else "main",
+                                model=task.gemini_review.model,
+                                gemini_cmd=task.gemini_review.gemini_cmd,
+                            )
+                            if summary:
+                                run.gemini_summary = summary
+                                store.save_log(run_id, f"gemini_review_iter{iteration}.txt", summary)
+                                _log(run_id, f"  gemini summary: {summary[:200]}")
+                                _slack_post(slack_client, run, f":memo: *PR Summary (Gemini):*\n{summary[:2000]}")
+                            else:
+                                _log(run_id, "  gemini summary: (empty response)")
+                        except Exception as exc:
+                            _log(run_id, f"  WARNING: Gemini review failed: {exc}")
+                        store.save_run(run)
 
                     run.state = RunState.passed
                     store.save_run(run)

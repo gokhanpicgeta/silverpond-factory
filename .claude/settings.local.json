@@ -1,10 +1,25 @@
 {
-  "permissions": {
-    "allow": [
-      "WebFetch(domain:github.com)",
-      "Bash(find /Users/vish/Documents/github/highlighter -type f \\\\\\( -name \"*.py\" -o -name \"*.rb\" \\\\\\) -exec wc -l {} +)",
-      "Bash(git -C /Users/vish/Documents/github/highlighter log --oneline)",
-      "Bash(git:*)"
+  "enabledMcpServers": {},
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/vishprasad/factory/worktrees/add-a-gemini-review-which-shows-a-summary-of-what-6e428c6e/.factory/session-start-hook.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/vishprasad/factory/worktrees/add-a-gemini-review-which-shows-a-summary-of-what-6e428c6e/.factory/stop-hook.sh"
+          }
+        ]
+      }
     ]
   }
 }
