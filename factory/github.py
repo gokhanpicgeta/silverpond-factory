@@ -59,6 +59,13 @@ class GitHubClient:
         except urllib.error.HTTPError as e:
             raise RuntimeError(f"GitHub API error {e.code}: {e.read().decode()}") from e
 
+    # ── Repo ──────────────────────────────────────────────────────────────────
+
+    def get_default_branch(self, repo: str) -> str:
+        """Return the default branch name for a repo (e.g. 'main' or 'master')."""
+        data = self._request("GET", f"/repos/{repo}")
+        return data.get("default_branch", "master")
+
     # ── Issues ────────────────────────────────────────────────────────────────
 
     def get_issues(self, repo: str, label: str) -> List[Dict]:

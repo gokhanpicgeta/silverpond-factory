@@ -115,16 +115,16 @@ def _push_and_pr(
         timeout=30,
     )
 
-    push_url = f"https://github.com/{repo}.git"
+    push_url = f"https://x-access-token:{gh.token}@github.com/{repo}.git"
     result = client.run(
-        f"git -C {worktree} push {push_url} HEAD:{branch}",
+        f"git -C {worktree} push {shlex.quote(push_url)} HEAD:{branch}",
         timeout=60,
     )
     if not result.ok:
         typer.echo(f"WARNING: git push failed:\n{result.stderr}")
         return None
 
-    base_branch = task.repo.branch if task.repo else "master"
+    base_branch = gh.get_default_branch(repo)
     verdict_line = f"\n\n**Evaluator:** {run.evaluator_reason}" if run.evaluator_verdict else ""
     service_line = f"\n\n**Preview:** http://{worker.host}:{run.service_port}" if run.service_port else ""
     pr_body = (
