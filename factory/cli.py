@@ -465,6 +465,45 @@ def cleanup(
     console.print(f"\n  {removed} {noun}.")
 
 
+# ── runs-clean ────────────────────────────────────────────────────────────────
+
+@app.command(name="runs-clean")
+def runs_clean(
+    days: int = typer.Option(7, "--days", "-d", help="Remove finished runs older than this many days"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print what would be removed without removing"),
+) -> None:
+    """Remove local run directories for finished runs older than N days (default 7)."""
+    import shutil
+    from datetime import timezone
+
+    runs = store.list_runs()
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - __import__("datetime").timedelta(days=days)
+
+    to_remove = [
+        r for r in runs
+        if r.state in (RunState.passed, RunState.failed)
+        and datetime.fromisoformat(r.created_at) < cutoff
+    ]
+
+    if not to_remove:
+        console.print(f"  [dim]No finished runs older than {days} day(s).[/dim]")
+        return
+
+    removed = 0
+    for r in to_remove:
+        run_dir = store.RUNS_DIR / r.run_id
+        age_days = (datetime.now(timezone.utc).replace(tzinfo=None) - datetime.fromisoformat(r.created_at)).days
+        if dry_run:
+            console.print(f"  [dim]would remove[/dim] {r.run_id}  [{r.state}]  {r.task_name[:50]}  [dim]({age_days}d old)[/dim]")
+        else:
+            shutil.rmtree(run_dir, ignore_errors=True)
+            console.print(f"  [green]removed[/green] {r.run_id}  [dim]{r.task_name[:50]}  ({age_days}d old)[/dim]")
+        removed += 1
+
+    noun = "run(s) would be removed" if dry_run else "run(s) removed"
+    console.print(f"\n  {removed} {noun}.")
+
+
 # ── logs ──────────────────────────────────────────────────────────────────────
 
 @app.command()
