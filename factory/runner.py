@@ -372,7 +372,7 @@ def watch_task(
                     store.save_run(run)
                     _log(run_id, f"state=passed  (iteration {iteration})")
                     _post_results(slack_client, run, results, passed=True)
-                    _maybe_open_pr(run, task, worker, repo, issue_number)
+                    _maybe_open_pr(run, task, worker, repo, issue_number, workers_path, slack_client)
                     return run
 
                 if iteration < task.coder.max_iterations:
@@ -564,7 +564,15 @@ def _post_results(slack_client, run: "Run", results: list, passed: bool) -> None
     _slack_post(slack_client, run, "\n".join(lines))
 
 
-def _maybe_open_pr(run: "Run", task: TaskDefinition, worker: "WorkerConfig", repo: str | None, issue_number: int | None) -> None:
+def _maybe_open_pr(
+    run: "Run",
+    task: TaskDefinition,
+    worker: "WorkerConfig",
+    repo: str | None,
+    issue_number: int | None,
+    workers_path: Path = Path("workers.yaml"),
+    slack_client=None,
+) -> None:
     if not repo:
         return
     from factory.github import GitHubClient, get_token
@@ -575,7 +583,7 @@ def _maybe_open_pr(run: "Run", task: TaskDefinition, worker: "WorkerConfig", rep
             issue = {"number": issue_number, "title": task.name.replace(f"Issue #{issue_number}: ", "")}
         else:
             issue = {"number": 0, "title": task.name}
-        pr_url = _push_and_pr(gh, repo, run, task, issue, Path("workers.yaml"))
+        pr_url = _push_and_pr(gh, repo, run, task, issue, workers_path)
         if issue_number:
             verdict_line = f"\n\n**Evaluator:** {run.evaluator_reason}" if run.evaluator_verdict else ""
             comment = (f"✅ Factory run **passed** (run `{run.run_id}`){verdict_line}\n\n"
@@ -586,8 +594,10 @@ def _maybe_open_pr(run: "Run", task: TaskDefinition, worker: "WorkerConfig", rep
             gh.remove_label(repo, issue_number, "factory")
         if pr_url:
             _log(run.run_id, f"  PR opened: {pr_url}")
+            _slack_post(slack_client, run, f":arrow_heading_up: PR opened: {pr_url}")
     except Exception as exc:
         _log(run.run_id, f"  WARNING: PR/issue update failed: {exc}")
+        _slack_post(slack_client, run, f":warning: PR creation failed: {exc}")
 
 
 def _maybe_comment_failure(run: "Run", repo: str | None, issue_number: int | None) -> None:
