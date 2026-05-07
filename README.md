@@ -12,7 +12,7 @@ An automated software factory that runs Claude AI agents on a remote worker mach
 factory run "Add a health check endpoint that returns {\"status\": \"ok\"}" --repo owner/my-repo
 ```
 
-Claude runs on the worker, implements the task, Crucible reviews the result, and if anything needs fixing it retries automatically.
+Claude runs on the worker, implements the task, Crucible reviews the result, and if anything needs fixing it retries automatically. A PR is opened on pass.
 
 ### 2. Batch from GitHub issues
 
@@ -58,6 +58,7 @@ Then edit `.env` and add:
 | `FACTORY_GITHUB_TOKEN` | Create at https://github.com/settings/tokens — scopes: `repo`, `issues`, `pull_requests`, `workflows` |
 | `SLACK_BOT_TOKEN` | Ask your admin — from the shared Slack app at api.slack.com/apps |
 | `SLACK_APP_TOKEN` | Ask your admin — same Slack app, under "App-Level Tokens" |
+| `SLACK_DEFAULT_REVIEWERS` | Comma-separated Slack member IDs to invite to each run's channel (find yours at slack.com/account/profile) |
 
 Slack is optional — leave those blank to skip notifications.
 
@@ -91,8 +92,11 @@ factory run "Fix the login bug" --repo owner/my-repo
 # With eval commands (run after the agent finishes each iteration)
 factory run "Add input validation" --repo owner/my-repo --eval "pytest" --eval "ruff check ."
 
-# Override model and effort
-factory run "Refactor the auth module" --repo owner/my-repo --model opus --effort high
+# Override model and effort (haiku + low is cheapest)
+factory run "Refactor the auth module" --repo owner/my-repo --model haiku --effort low
+
+# Control how many Crucible review rounds run (0 = skip Crucible)
+factory run "Add a loading spinner" --repo owner/my-repo --crucible-rounds 2
 
 # If you're inside a git repo, --repo is inferred automatically
 cd ~/projects/my-repo
@@ -111,7 +115,10 @@ factory poll owner/my-repo
 factory poll owner/my-repo --eval "bundle exec rails test"
 
 # Override model/effort for all issues in this poll
-factory poll owner/my-repo --model opus --effort low
+factory poll owner/my-repo --model haiku --effort low
+
+# Control crucible rounds
+factory poll owner/my-repo --crucible-rounds 2
 
 # Cap how many issues run in parallel (default: worker slot count)
 factory poll owner/my-repo --max-concurrency 2
@@ -128,7 +135,7 @@ Individual issues can override model/effort via labels:
 The terminal frees up immediately after launch. Use these to check on runs:
 
 ```bash
-factory status                  # list all runs
+factory status                  # list all runs (includes PR URL)
 factory status <run_id>         # detail for one run
 factory attach <run_id>         # attach to the live tmux session on the worker
 factory logs <run_id>           # tail agent output
@@ -138,24 +145,39 @@ factory workers                 # show active sessions + CPU/mem on each worker
 
 ---
 
+## Maintenance
+
+```bash
+# Remove worktrees on the worker for finished runs
+factory cleanup                 # remove all dead worktrees on ares
+factory cleanup --dry-run       # preview first
+
+# Remove local run history
+factory runs-clean              # remove finished runs older than 7 days
+factory runs-clean --days 1     # keep only last day
+factory runs-clean --all        # remove all finished runs
+factory runs-clean --dry-run    # preview first
+```
+
+---
+
 ## Advanced: task YAML files
 
 For repeatable or complex tasks, define them in a YAML file:
 
 ```bash
-factory init                    # interactive wizard to create a task YAML
-factory run tasks/my-task.yaml  # run from YAML
-factory poll owner/my-repo --template tasks/my-task.yaml  # poll with YAML template
+factory run tasks/my-task.yaml                              # run from YAML
+factory poll owner/my-repo --template tasks/my-task.yaml   # poll with YAML template
 ```
 
-YAML files let you configure the full pipeline — eval commands, crucible, untangle, evaluator, Slack reviewers, service ports, and more. See `tasks/todo.yaml` for a complete example.
+YAML files let you configure the full pipeline — eval commands, crucible rounds, untangle, evaluator, Slack reviewers, service ports, and more. See `tasks/todo.yaml` for a complete example.
 
 ---
 
 ## Pipeline
 
 ```
-worktree → agent → eval → crucible → evaluator → PR
+worktree → agent → eval → crucible (N rounds) → evaluator → PR
 ```
 
 Any stage that fails sends feedback back to the agent for another iteration (up to `max_iterations`, default 3). Stages not configured are skipped.
