@@ -407,7 +407,7 @@ def cleanup(
     workers_path: Path = _WORKERS_OPT,
     dry_run: bool = typer.Option(False, "--dry-run", help="Print what would be removed without removing"),
 ) -> None:
-    """Remove worktrees on the worker for all finished (passed/failed) runs."""
+    """Remove all factory worktrees on the worker that have no active tmux session."""
     config = load_workers(workers_path)
     w = config.workers.get(worker)
     if w is None:
@@ -417,35 +417,50 @@ def cleanup(
     client = SSHClient(host=w.host, user=w.user, port=w.port,
                        identity_file=w.identity_file, shell_init=w.shell_init)
 
-    runs = store.list_runs()
-    finished = [r for r in runs if r is not None and r.state in (RunState.passed, RunState.failed) and r.worktree_path]
+    # List all worktree directories on the worker
+    worktree_base = w.default_worktree_base
+    listing = client.run(f"ls {worktree_base} 2>/dev/null", timeout=10)
+    dirs = [d.strip() for d in listing.stdout.splitlines() if d.strip()]
 
-    if not finished:
-        console.print("  [dim]No finished runs with worktrees found.[/dim]")
+    if not dirs:
+        console.print("  [dim]No worktrees found.[/dim]")
         return
 
-    removed = 0
-    for r in finished:
-        worktree = r.worktree_path
-        branch = f"factory/{r.task_id}-{r.run_id}"
+    # Find active tmux sessions so we don't remove live worktrees
+    sessions_out = client.run("tmux ls -F '#{session_name}' 2>/dev/null || true", timeout=10)
+    active_sessions = set(sessions_out.stdout.splitlines())
 
-        exists = client.run(f"test -d {worktree} && echo yes || echo no", timeout=10)
-        if "yes" not in exists.stdout:
+    removed = 0
+    for d in dirs:
+        # Extract run_id from the last segment (e.g. task-name-abc12345 → abc12345)
+        run_id = d.rsplit("-", 1)[-1] if "-" in d else d
+        session = f"factory-{run_id}"
+        if session in active_sessions:
+            console.print(f"  [dim]skipping[/dim] {d}  [yellow](active)[/yellow]")
             continue
 
+        worktree = f"{worktree_base}/{d}"
         if dry_run:
-            console.print(f"  [dim]would remove[/dim] {worktree}  [dim]({r.run_id[:8]} {r.task_name[:40]})[/dim]")
+            console.print(f"  [dim]would remove[/dim] {worktree}")
             removed += 1
             continue
 
-        # Remove the worktree, then prune the branch
-        base_path = client.run(f"git -C {worktree} rev-parse --path-format=absolute --git-common-dir 2>/dev/null | sed 's|/.git||'", timeout=10).stdout.strip()
-        client.run(f"git -C {base_path} worktree remove --force {worktree} 2>/dev/null || rm -rf {worktree}", timeout=30)
-        client.run(f"git -C {base_path} branch -D {branch} 2>/dev/null || true", timeout=10)
-        console.print(f"  [green]removed[/green] {worktree}  [dim]({r.run_id[:8]} {r.task_name[:40]})[/dim]")
+        # Find the base repo for this worktree so we can prune via git
+        base_path = client.run(
+            f"git -C {worktree} rev-parse --path-format=absolute --git-common-dir 2>/dev/null | sed 's|/\\.git.*||'",
+            timeout=10,
+        ).stdout.strip()
+
+        if base_path:
+            client.run(f"git -C {base_path} worktree remove --force {worktree} 2>/dev/null || rm -rf {worktree}", timeout=30)
+            client.run(f"git -C {base_path} branch -D factory/{d} 2>/dev/null || true", timeout=10)
+        else:
+            client.run(f"rm -rf {worktree}", timeout=30)
+
+        console.print(f"  [green]removed[/green] {worktree}")
         removed += 1
 
-    noun = "worktree(s)" if not dry_run else "worktree(s) would be removed"
+    noun = "worktree(s) would be removed" if dry_run else "worktree(s) removed"
     console.print(f"\n  {removed} {noun}.")
 
 
