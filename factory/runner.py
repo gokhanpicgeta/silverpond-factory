@@ -329,10 +329,12 @@ def watch_task(
                             label = f" (round {rnd}/{rounds})" if rounds > 1 else ""
                             _log(run_id, f"  running crucible review{label}...")
                             _slack_post(slack_client, run, f":magnifying_glass_tilted_right: Running crucible review{label}...")
-                            crucible_feedback, crucible_errors = _run_crucible(client, working_dir, base_branch, task.crucible)
+                            crucible_feedback, crucible_errors, crucible_debug = _run_crucible(client, working_dir, base_branch, task.crucible)
                             store.save_log(run_id, f"crucible_iter{iteration}_rnd{rnd}.json", crucible_feedback or "")
                             if crucible_errors:
                                 store.save_log(run_id, f"crucible_iter{iteration}_rnd{rnd}.stderr.txt", crucible_errors)
+                            if crucible_debug:
+                                store.save_log(run_id, f"crucible_iter{iteration}_rnd{rnd}.debug.log", crucible_debug)
                             if crucible_feedback:
                                 _log(run_id, f"  crucible blocked{label}: {crucible_feedback[:120]}...")
                                 _slack_post(slack_client, run, f":x: Crucible found critical issues{label}:\n```{crucible_feedback[:1000]}```")
@@ -582,23 +584,27 @@ def _run_crucible(client: SSHClient, working_dir: str, base_branch: str, config:
             f"python3 -c {_shlex.quote(patch_script)}",
             timeout=15,
         )
-    cmd = f"cd {working_dir} && crucible review --branch {base_branch} --json"
+    cmd = f"cd {working_dir} && crucible review --branch {base_branch} --json --debug"
     result = client.run(cmd, timeout=config.timeout)
     errors = result.stderr or ""
+    debug_log = client.run(
+        f"ls -t {working_dir}/.crucible/runs/*/debug.log 2>/dev/null | head -1 | xargs cat 2>/dev/null || true",
+        timeout=10,
+    ).stdout
     if not result.stdout.strip():
-        return "", errors
+        return "", errors, debug_log
     try:
         data = _json.loads(result.stdout)
     except Exception:
-        return "", errors
+        return "", errors, debug_log
     if data.get("verdict", "Pass") in ("Pass", "Warn"):
-        return "", errors
+        return "", errors, debug_log
     critical = [
         f"[{f['severity']}] {f['file']}:{f.get('line_start','')} {f['title']}: {f['description']}"
         for f in data.get("findings", [])
         if f.get("severity") == "Critical"
     ]
-    return ("\n".join(critical) if critical else ""), errors
+    return ("\n".join(critical) if critical else ""), errors, debug_log
 
 
 def _slack_post(slack_client, run: "Run", text: str) -> None:
