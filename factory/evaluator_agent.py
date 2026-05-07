@@ -141,7 +141,9 @@ def run_gemini_review(
     result = client.run(cmd, timeout=timeout)
     if result.ok and result.stdout.strip():
         return result.stdout.strip()
-    return ""
+    raise RuntimeError(
+        f"gemini exited {result.exit_code}\nstdout: {result.stdout[:500]}\nstderr: {result.stderr[:500]}"
+    )
 
 
 def parse_verdict(output: str) -> tuple[str, str]:
