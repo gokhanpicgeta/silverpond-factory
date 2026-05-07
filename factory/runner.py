@@ -572,6 +572,7 @@ def _run_crucible(client: SSHClient, working_dir: str, base_branch: str, config:
             "'agents = [\\n    \"claude-code\",\\n    \"codex\",\\n    \"gemini\",\\n    \"open-code\",\\n]', "
             "'agents = [\"claude-code\"]'"
             "); "
+            f"c = c.replace('max_rounds = 2', 'max_rounds = {config.rounds}'); "
             "old = '    \"-p\",\\n    \"--output-format\",\\n    \"json\",\\n]\\npersona = \"Security Auditor\"'; "
             f"new = '    \"-p\",\\n    \"--output-format\",\\n    \"json\",\\n    \"--model\",\\n    \"{config.model}\",\\n]\\npersona = \"Security Auditor\"'; "
             "open('.crucible.toml', 'w').write(c.replace(old, new))"
