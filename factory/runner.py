@@ -313,11 +313,16 @@ def watch_task(
                         _log(run_id, "  untangle passed")
 
                     if task.crucible is not None and run.worktree_path:
-                        _log(run_id, "  running crucible review...")
-                        _slack_post(slack_client, run, ":magnifying_glass_tilted_right: Running crucible review...")
                         base_branch = task.repo.branch if task.repo else "master"
-                        crucible_feedback = _run_crucible(client, working_dir, base_branch, task.crucible)
-                        store.save_log(run_id, f"crucible_iter{iteration}.json", crucible_feedback or "")
+                        crucible_feedback = ""
+                        for crucible_round in range(1, task.crucible.rounds + 1):
+                            round_label = f" (round {crucible_round}/{task.crucible.rounds})" if task.crucible.rounds > 1 else ""
+                            _log(run_id, f"  running crucible review{round_label}...")
+                            _slack_post(slack_client, run, f":magnifying_glass_tilted_right: Running crucible review{round_label}...")
+                            crucible_feedback = _run_crucible(client, working_dir, base_branch, task.crucible)
+                            store.save_log(run_id, f"crucible_iter{iteration}_round{crucible_round}.json", crucible_feedback or "")
+                            if crucible_feedback:
+                                break
                         if crucible_feedback:
                             _log(run_id, f"  crucible blocked: {crucible_feedback[:120]}...")
                             _slack_post(slack_client, run, f":x: Crucible found critical issues:\n```{crucible_feedback[:1000]}```")
