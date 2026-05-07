@@ -565,21 +565,27 @@ def _post_results(slack_client, run: "Run", results: list, passed: bool) -> None
 
 
 def _maybe_open_pr(run: "Run", task: TaskDefinition, worker: "WorkerConfig", repo: str | None, issue_number: int | None) -> None:
-    if not repo or not issue_number:
+    if not repo:
         return
     from factory.github import GitHubClient, get_token
     from factory.poller import _push_and_pr, _branch_name
     try:
         gh = GitHubClient(get_token())
-        issue = {"number": issue_number, "title": task.name.replace(f"Issue #{issue_number}: ", "")}
+        if issue_number:
+            issue = {"number": issue_number, "title": task.name.replace(f"Issue #{issue_number}: ", "")}
+        else:
+            issue = {"number": 0, "title": task.name}
         pr_url = _push_and_pr(gh, repo, run, task, issue, Path("workers.yaml"))
-        verdict_line = f"\n\n**Evaluator:** {run.evaluator_reason}" if run.evaluator_verdict else ""
-        comment = (f"✅ Factory run **passed** (run `{run.run_id}`){verdict_line}\n\n"
-                   f"Branch: `{_branch_name(task.id, run.run_id)}`")
-        gh.comment_on_issue(repo, issue_number, comment)
-        gh.close_issue(repo, issue_number)
-        gh.remove_label(repo, issue_number, "factory:running")
-        gh.remove_label(repo, issue_number, "factory")
+        if issue_number:
+            verdict_line = f"\n\n**Evaluator:** {run.evaluator_reason}" if run.evaluator_verdict else ""
+            comment = (f"✅ Factory run **passed** (run `{run.run_id}`){verdict_line}\n\n"
+                       f"Branch: `{_branch_name(task.id, run.run_id)}`")
+            gh.comment_on_issue(repo, issue_number, comment)
+            gh.close_issue(repo, issue_number)
+            gh.remove_label(repo, issue_number, "factory:running")
+            gh.remove_label(repo, issue_number, "factory")
+        if pr_url:
+            _log(run.run_id, f"  PR opened: {pr_url}")
     except Exception as exc:
         _log(run.run_id, f"  WARNING: PR/issue update failed: {exc}")
 

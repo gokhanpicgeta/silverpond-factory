@@ -181,7 +181,8 @@ def run_cmd(
         console.print()
         raise typer.Exit(1)
 
-    spawn_watcher(run, workers.resolve())
+    gh_repo = _parse_gh_repo(task.repo.url) if task.repo and task.repo.url else None
+    spawn_watcher(run, workers.resolve(), repo=gh_repo)
 
 
 # ── status ───────────────────────────────────────────────────────────────────

@@ -12,6 +12,7 @@ For each open issue labeled "factory":
 """
 from __future__ import annotations
 
+import shlex
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -105,11 +106,12 @@ def _push_and_pr(
 
     worktree = run.worktree_path
 
+    commit_msg = f"factory: fix for issue #{number}" if number else f"factory: {task.name[:60]}"
     # Commit any uncommitted changes Claude left behind
     client.run(
         f"git -C {worktree} add -A && "
         f"git -C {worktree} diff --cached --quiet || "
-        f"git -C {worktree} commit -m 'factory: fix for issue #{number}'",
+        f"git -C {worktree} commit -m {shlex.quote(commit_msg)}",
         timeout=30,
     )
 
@@ -119,15 +121,15 @@ def _push_and_pr(
         timeout=60,
     )
     if not result.ok:
-        typer.echo(f"[issue-{number}] WARNING: git push failed:\n{result.stderr}")
-        return
+        typer.echo(f"WARNING: git push failed:\n{result.stderr}")
+        return None
 
     base_branch = task.repo.branch if task.repo else "master"
     verdict_line = f"\n\n**Evaluator:** {run.evaluator_reason}" if run.evaluator_verdict else ""
     service_line = f"\n\n**Preview:** http://{worker.host}:{run.service_port}" if run.service_port else ""
     pr_body = (
-        f"Fixes #{number}\n\n"
-        f"Automated fix by Silverpond Factory (run `{run.run_id}`).{verdict_line}{service_line}"
+        f"{'Fixes #' + str(number) + chr(10) + chr(10) if number else ''}"
+        f"Automated implementation by Silverpond Factory (run `{run.run_id}`).{verdict_line}{service_line}"
     )
     try:
         pr = gh.create_pr(
@@ -137,10 +139,12 @@ def _push_and_pr(
             head=branch,
             base=base_branch,
         )
-        _plog(number, f"PR opened: {pr['html_url']}", style="green")
+        if number:
+            _plog(number, f"PR opened: {pr['html_url']}", style="green")
         return pr["html_url"]
     except RuntimeError as exc:
-        _plog(number, f"WARNING: could not open PR: {exc}", style="yellow")
+        typer.echo(f"WARNING: could not open PR: {exc}")
+        return None
     return None
 
 
