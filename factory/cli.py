@@ -208,7 +208,8 @@ def status(
     table.add_column("Task")
     table.add_column("Worker",  style="dim")
     table.add_column("State",   no_wrap=True)
-    table.add_column("Created", style="dim", no_wrap=True)
+    table.add_column("PR",      style="blue",  no_wrap=True)
+    table.add_column("Created", style="dim",   no_wrap=True)
 
     for r in runs:
         color = _STATE_STYLE.get(r.state, "white")
@@ -217,6 +218,7 @@ def status(
             r.task_name,
             r.worker,
             f"[{color}]{r.state}[/{color}]",
+            r.pr_url or "",
             r.created_at[:19],
         )
 
@@ -225,6 +227,8 @@ def status(
     # If a single run was requested, show eval detail too
     if run_id and runs:
         r = runs[0]
+        if r.pr_url:
+            console.print(f"\n  PR: [blue]{r.pr_url}[/blue]")
         if r.eval_results:
             typer.echo("\nEval results:")
             for er in r.eval_results:

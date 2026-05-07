@@ -124,6 +124,7 @@ class Run(BaseModel):
     issue_number: Optional[int] = None   # GitHub issue number if spawned by poller
     evaluator_verdict: str = ""          # approved / needs_changes
     evaluator_reason: str = ""
+    pr_url: str = ""                       # GitHub PR URL once opened
     gemini_summary: str = ""             # Gemini PR summary (informational)
     slack_channel_id: str = ""           # Slack channel ID for this run
     slack_thread_ts: str = ""            # thread_ts of the run's root Slack message

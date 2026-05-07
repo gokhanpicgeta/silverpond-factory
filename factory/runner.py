@@ -626,6 +626,8 @@ def _maybe_open_pr(
             gh.remove_label(repo, issue_number, "factory:running")
             gh.remove_label(repo, issue_number, "factory")
         if pr_url:
+            run.pr_url = pr_url
+            store.save_run(run)
             _log(run.run_id, f"  PR opened: {pr_url}")
             _slack_post(slack_client, run, f":arrow_heading_up: PR opened: {pr_url}")
         elif repo:
