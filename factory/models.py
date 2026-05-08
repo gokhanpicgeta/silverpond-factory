@@ -69,8 +69,8 @@ class UntangleConfig(BaseModel):
 
 class CrucibleConfig(BaseModel):
     block_on: str = "Critical"   # severity level that blocks the run
-    timeout: int = 300           # seconds for the review
-    rounds: int = 1              # how many sequential crucible passes required
+    timeout: int = 600           # seconds for the review
+    rounds: int = 2              # max crucible feedback cycles before giving up (skips 2nd if 1st passes)
     model: Optional[str] = None  # claude model for crucible's reviewer (e.g. "claude-haiku-4-5-20251001")
 
 
