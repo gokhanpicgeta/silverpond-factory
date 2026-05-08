@@ -112,7 +112,7 @@ def _push_and_pr(
     # Exclude .factory/ and .claude/ (contain secrets and machine-specific config)
     client.run(
         f"git -C {worktree} add -A && "
-        f"git -C {worktree} reset HEAD .factory/ .claude/ 2>/dev/null || true && "
+        f"git -C {worktree} reset HEAD .factory/ .claude/ .crucible/ 2>/dev/null || true && "
         f"git -C {worktree} diff --cached --quiet || "
         f"git -C {worktree} commit -m {shlex.quote(commit_msg)}",
         timeout=30,

@@ -332,6 +332,16 @@ def watch_task(
                         _log(run_id, "  untangle passed")
 
                     if task.crucible is not None and run.worktree_path:
+                        # Commit any uncommitted agent changes so crucible can see the diff
+                        import shlex as _shlex
+                        commit_msg = _shlex.quote(f"factory: agent changes (iter {iteration})")
+                        client.run(
+                            f"git -C {working_dir} add -A && "
+                            f"git -C {working_dir} reset HEAD .factory/ .claude/ .crucible/ 2>/dev/null || true && "
+                            f"git -C {working_dir} diff --cached --quiet || "
+                            f"git -C {working_dir} commit -m {commit_msg}",
+                            timeout=30,
+                        )
                         _log(run_id, f"  running crucible review...")
                         _slack_post(slack_client, run, f":magnifying_glass_tilted_right: Running crucible review...")
                         crucible_feedback, crucible_errors, crucible_debug = _run_crucible(client, working_dir, base_branch, task.crucible)
@@ -557,7 +567,8 @@ def _create_run_worktree(client: SSHClient, task: TaskDefinition, run_id: str, w
     client.run(
         f"echo '.factory/' >> {worktree_path}/.gitignore && "
         f"echo '.claude/' >> {worktree_path}/.gitignore && "
-        f"echo '.crucible.toml' >> {worktree_path}/.gitignore",
+        f"echo '.crucible.toml' >> {worktree_path}/.gitignore && "
+        f"echo '.crucible/' >> {worktree_path}/.gitignore",
         timeout=10,
     )
     return worktree_path
