@@ -58,7 +58,7 @@ class EvaluatorConfig(BaseModel):
     criteria: Optional[str] = None  # extra review criteria beyond the defaults
     timeout: int = 120              # seconds for the review call
     model: Optional[str] = None    # claude model alias; None = worker default
-    effort: Optional[str] = None   # claude effort level; None = "low"
+    effort: str = "medium"         # claude effort level
 
 
 class UntangleConfig(BaseModel):

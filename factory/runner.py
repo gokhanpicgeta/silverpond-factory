@@ -376,17 +376,19 @@ def watch_task(
                         timeout=10,
                     ).stdout.strip()
 
-                    if task.evaluator is not None and run.worktree_path:
+                    if run.worktree_path:
+                        from factory.models import EvaluatorConfig as _EvaluatorConfig
+                        evaluator_cfg = task.evaluator or _EvaluatorConfig()
                         _log(run_id, "  running evaluator agent...")
-                        eval_model = task.evaluator.model or worker.model
-                        eval_effort = task.evaluator.effort or "low"
+                        eval_model = evaluator_cfg.model or worker.model
+                        eval_effort = evaluator_cfg.effort
                         ev_result = run_evaluator(
                             client,
                             worktree_path=working_dir,
                             task_description=task.coder.prompt,
                             eval_results=results,
-                            extra_criteria=task.evaluator.criteria or "",
-                            timeout=task.evaluator.timeout,
+                            extra_criteria=evaluator_cfg.criteria or "",
+                            timeout=evaluator_cfg.timeout,
                             base_branch=base_branch,
                             model=eval_model,
                             effort=eval_effort,
