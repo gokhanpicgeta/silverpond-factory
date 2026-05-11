@@ -120,8 +120,12 @@ def run_evaluator(
         flags += f" --model {model}"
     if effort:
         flags += f" --effort {effort}"
-    cmd = f'claude {flags} "$(echo \'{encoded}\' | base64 -d)"'
-    return client.run(cmd, timeout=timeout)
+    tmp = f"/tmp/factory-evaluator-{worktree_path.replace('/', '-')[-40:]}.b64"
+    client.run(f"printf '%s' '{encoded}' > {tmp}", timeout=10)
+    cmd = f'claude {flags} "$(base64 -d {tmp})"'
+    result = client.run(cmd, timeout=timeout)
+    client.run(f"rm -f {tmp}", timeout=5)
+    return result
 
 
 def parse_verdict(output: str) -> tuple[str, str]:
