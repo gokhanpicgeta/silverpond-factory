@@ -363,15 +363,18 @@ def watch_task(
                                 _log(run_id, "  sending crucible feedback to coder")
                                 store.save_run(run)
                                 continue
-                            run.state = RunState.failed
-                            run.notes = f"Crucible review blocked after {task.crucible.rounds} rounds"
-                            store.save_run(run)
-                            sess.kill_session(client, session_name)
-                            if run.slack_thread_ts:
-                                sess.unregister_run(client, run.slack_thread_ts)
-                            return run
-                        _log(run_id, "  crucible passed")
-                        _slack_post(slack_client, run, ":white_check_mark: Crucible passed")
+                            # Rounds exhausted — fall through to evaluator to decide fate
+                            _log(run_id, "  crucible rounds exhausted — deferring to evaluator")
+                        else:
+                            crucible_feedback = ""
+                            _log(run_id, "  crucible passed")
+                            _slack_post(slack_client, run, ":white_check_mark: Crucible passed")
+
+                    # Read completion summary for evaluator context
+                    completion_summary = client.run(
+                        f"cat {working_dir}/.factory/completion.md 2>/dev/null || true",
+                        timeout=10,
+                    ).stdout.strip()
 
                     if task.evaluator is not None and run.worktree_path:
                         _log(run_id, "  running evaluator agent...")
@@ -387,18 +390,24 @@ def watch_task(
                             base_branch=base_branch,
                             model=eval_model,
                             effort=eval_effort,
+                            crucible_findings=crucible_feedback or "",
+                            completion_summary=completion_summary,
                         )
                         store.save_log(run_id, f"evaluator_iter{iteration}.stdout", ev_result.stdout)
                         verdict, reason = parse_verdict(ev_result.stdout)
                         run.evaluator_verdict = verdict
                         run.evaluator_reason = reason
                         _log(run_id, f"  evaluator verdict={verdict}: {reason}")
+                        _slack_post(slack_client, run, f":robot_face: Evaluator: *{verdict}* — {reason}")
 
-                        if verdict == "needs_changes" and iteration < task.coder.max_iterations:
-                            feedback_message = reason
-                            _log(run_id, "  evaluator requested changes — sending feedback to coder")
+                        if verdict == "rejected":
+                            run.state = RunState.failed
+                            run.notes = reason
                             store.save_run(run)
-                            continue
+                            sess.kill_session(client, session_name)
+                            if run.slack_thread_ts:
+                                sess.unregister_run(client, run.slack_thread_ts)
+                            return run
 
                     if task.gemini_review is not None and run.worktree_path:
                         _log(run_id, "  running gemini PR summary...")
@@ -428,17 +437,13 @@ def watch_task(
                     store.save_run(run)
                     _log(run_id, f"state=passed  (iteration {iteration})")
                     _post_results(slack_client, run, results, passed=True)
-                    if slack_client and run.slack_channel_id:
-                        summary = client.run(
-                            f"cat {working_dir}/.factory/completion.md 2>/dev/null || true",
-                            timeout=10,
-                        ).stdout.strip()
-                        if summary:
-                            _slack_post(slack_client, run, f":robot_face: {summary[:2000]}")
+                    if slack_client and run.slack_channel_id and completion_summary:
+                        _slack_post(slack_client, run, f":robot_face: {completion_summary[:2000]}")
                     sess.kill_session(client, session_name)
                     if run.slack_thread_ts:
                         sess.unregister_run(client, run.slack_thread_ts)
-                    _maybe_open_pr(run, task, worker, repo, issue_number, workers_path, slack_client)
+                    draft_pr = run.evaluator_verdict == "open_draft"
+                    _maybe_open_pr(run, task, worker, repo, issue_number, workers_path, slack_client, draft=draft_pr)
                     return run
 
                 if iteration < max_iterations:
@@ -676,6 +681,7 @@ def _maybe_open_pr(
     issue_number: int | None,
     workers_path: Path = Path("workers.yaml"),
     slack_client=None,
+    draft: bool = False,
 ) -> None:
     if not repo:
         return
@@ -687,7 +693,7 @@ def _maybe_open_pr(
             issue = {"number": issue_number, "title": task.name.replace(f"Issue #{issue_number}: ", "")}
         else:
             issue = {"number": 0, "title": task.name}
-        pr_url = _push_and_pr(gh, repo, run, task, issue, workers_path)
+        pr_url = _push_and_pr(gh, repo, run, task, issue, workers_path, draft=draft)
         if issue_number:
             verdict_line = f"\n\n**Evaluator:** {run.evaluator_reason}" if run.evaluator_verdict else ""
             comment = (f"✅ Factory run **passed** (run `{run.run_id}`){verdict_line}\n\n"

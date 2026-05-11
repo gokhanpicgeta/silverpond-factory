@@ -14,12 +14,14 @@ from factory.models import EvalResult
 from factory.ssh import SSHClient, SSHResult
 
 REVIEW_PROMPT_TEMPLATE = """\
-You are a code reviewer in an automated software factory.
-
-Review the following code changes and test results, then give a verdict.
+You are a senior engineer in an automated software factory. Your job is to decide \
+whether a pull request should be opened, opened as a draft, or rejected.
 
 ## Task Description
 {task_description}
+
+## Agent Completion Summary
+{completion_summary}
 
 ## Git Diff (what the coder wrote)
 ```
@@ -31,22 +33,37 @@ Review the following code changes and test results, then give a verdict.
 {test_output}
 ```
 
+## Code Review Findings (Crucible)
+```
+{crucible_findings}
+```
+
 ## Review Criteria
-- Correctness: does the implementation match the task description?
-- Test quality: are the tests meaningful, or do they trivially pass?
-- Edge cases: are obvious edge cases handled or tested?
+- Did the agent complete the task as described?
+- Are any of the code review findings serious enough to block merging?
+- Is the implementation safe to open as a PR for human review, even if imperfect?
 {extra_criteria}
 
 ## Response Format
 Reply in EXACTLY this format, nothing else:
 
 VERDICT: APPROVED
-REASON: <one sentence>
+REASON: <one sentence explaining why it's ready to merge>
 
 or:
 
-VERDICT: NEEDS_CHANGES
-REASON: <specific description of what needs to change>
+VERDICT: OPEN_DRAFT
+REASON: <one sentence summarising what still needs attention>
+
+or:
+
+VERDICT: REJECTED
+REASON: <one sentence explaining the blocking issue>
+
+Guidelines:
+- APPROVED: task complete, no serious issues, safe to merge
+- OPEN_DRAFT: task mostly complete or has minor issues — worth a human look, not safe to auto-merge
+- REJECTED: task not completed, broken functionality, or security issue present
 """
 
 
@@ -77,6 +94,8 @@ def run_evaluator(
     base_branch: str = "main",
     model: Optional[str] = None,
     effort: Optional[str] = None,
+    crucible_findings: str = "",
+    completion_summary: str = "",
 ) -> SSHResult:
     """Run claude -p with the review prompt and return the raw result."""
     diff = get_diff(client, worktree_path, base_branch)
@@ -84,12 +103,14 @@ def run_evaluator(
     test_output = "\n".join(
         f"$ {r.command}\n{r.stdout}{r.stderr}".strip()
         for r in eval_results
-    )
+    ) or "(no tests run)"
 
     prompt = REVIEW_PROMPT_TEMPLATE.format(
         task_description=task_description,
+        completion_summary=completion_summary or "(no summary provided)",
         diff=diff,
         test_output=test_output,
+        crucible_findings=crucible_findings or "(no findings)",
         extra_criteria=f"- {extra_criteria}" if extra_criteria else "",
     )
 
@@ -106,21 +127,25 @@ def run_evaluator(
 def parse_verdict(output: str) -> tuple[str, str]:
     """
     Parse the evaluator's response.
-    Returns (verdict, reason) where verdict is 'approved' or 'needs_changes'.
-    Falls back to 'approved' if the format is unexpected.
+    Returns (verdict, reason) where verdict is 'approved', 'open_draft', or 'rejected'.
+    Falls back to 'open_draft' if the format is unexpected.
     """
+    reason = ""
+    for rline in output.splitlines():
+        if rline.strip().upper().startswith("REASON:"):
+            reason = rline.split(":", 1)[1].strip()
+            break
+
     for line in output.splitlines():
         line = line.strip()
         if line.upper().startswith("VERDICT:"):
             verdict_raw = line.split(":", 1)[1].strip().upper()
-            verdict = "approved" if "APPROVED" in verdict_raw else "needs_changes"
-            # Find reason
-            reason = ""
-            for rline in output.splitlines():
-                if rline.strip().upper().startswith("REASON:"):
-                    reason = rline.split(":", 1)[1].strip()
-                    break
+            if "APPROVED" in verdict_raw:
+                verdict = "approved"
+            elif "OPEN_DRAFT" in verdict_raw or "DRAFT" in verdict_raw:
+                verdict = "open_draft"
+            else:
+                verdict = "rejected"
             return verdict, reason
 
-    # Couldn't parse — treat as approved to avoid blocking the pipeline
-    return "approved", "(evaluator response unparseable — defaulting to approved)"
+    return "open_draft", "(evaluator response unparseable — defaulting to draft PR)"

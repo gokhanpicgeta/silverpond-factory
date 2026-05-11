@@ -111,10 +111,12 @@ class GitHubClient:
         body: str,
         head: str,
         base: str,
+        draft: bool = False,
     ) -> Dict:
         return self._request("POST", f"/repos/{repo}/pulls", data={
             "title": title,
             "body": body,
             "head": head,
             "base": base,
+            "draft": draft,
         })

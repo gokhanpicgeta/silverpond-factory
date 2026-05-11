@@ -91,6 +91,7 @@ def _push_and_pr(
     task: TaskDefinition,
     issue: Dict,
     workers_path: Path,
+    draft: bool = False,
 ) -> None:
     """Push the worktree branch to GitHub and open a PR."""
     branch = _branch_name(task.id, run.run_id)
@@ -140,6 +141,7 @@ def _push_and_pr(
             body=pr_body,
             head=branch,
             base=base_branch,
+            draft=draft,
         )
         if number:
             _plog(number, f"PR opened: {pr['html_url']}", style="green")
