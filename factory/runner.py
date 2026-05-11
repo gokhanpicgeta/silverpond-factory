@@ -396,6 +396,8 @@ def watch_task(
                             completion_summary=completion_summary,
                         )
                         store.save_log(run_id, f"evaluator_iter{iteration}.stdout", ev_result.stdout)
+                        if ev_result.stderr:
+                            store.save_log(run_id, f"evaluator_iter{iteration}.stderr", ev_result.stderr)
                         verdict, reason = parse_verdict(ev_result.stdout)
                         run.evaluator_verdict = verdict
                         run.evaluator_reason = reason
