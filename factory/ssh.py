@@ -66,6 +66,21 @@ class SSHClient:
         except FileNotFoundError:
             return SSHResult(exit_code=-1, stdout="", stderr="ssh not found on PATH")
 
+    def write_file(self, remote_path: str, content: str, timeout: int = 30) -> SSHResult:
+        """Write content to a remote file by piping via stdin — avoids arg length limits."""
+        cmd = self._base_args() + [f"cat > {remote_path}"]
+        try:
+            result = subprocess.run(
+                cmd,
+                input=content,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            return SSHResult(exit_code=result.returncode, stdout=result.stdout, stderr=result.stderr)
+        except subprocess.TimeoutExpired:
+            return SSHResult(exit_code=-1, stdout="", stderr=f"Command timed out after {timeout}s")
+
     def ping(self) -> bool:
         """Return True if we can reach the host and run a basic command."""
         result = self.run("echo pong", timeout=10)

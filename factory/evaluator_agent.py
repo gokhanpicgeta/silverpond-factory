@@ -121,7 +121,7 @@ def run_evaluator(
     if effort:
         flags += f" --effort {effort}"
     tmp = f"/tmp/factory-evaluator-{worktree_path.replace('/', '-')[-40:]}.b64"
-    client.run(f"printf '%s' '{encoded}' > {tmp}", timeout=10)
+    client.write_file(tmp, encoded)
     cmd = f'claude {flags} "$(base64 -d {tmp})"'
     result = client.run(cmd, timeout=timeout)
     client.run(f"rm -f {tmp}", timeout=5)
